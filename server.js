@@ -8,6 +8,8 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
+let isCooldown = false;
+
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST'],
@@ -26,13 +28,27 @@ wss.on('connection', ws => {
   ws.send(JSON.stringify({ type: 'connection', message: 'Connection established' }));
 
   ws.on('message', message => {
+    if (isCooldown) {
+      ws.send(JSON.stringify({ type: 'cooldown', message: 'Server is in cooldown. Try again later.' }));
+      return;
+    }
+
     console.log(`Received message => ${message}`);
+    isCooldown = true;
+
     try {
+      // Broadcast message to all connected clients
       wss.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
           client.send(message);
         }
       });
+
+      // Set cooldown for 3 seconds
+      setTimeout(() => {
+        isCooldown = false;
+      }, 3000);
+
     } catch (error) {
       console.error('Error parsing or broadcasting message:', error);
     }
