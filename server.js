@@ -8,7 +8,7 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-let isCooldown = false;
+const cooldowns = new Map();
 
 app.use(cors({
   origin: '*',
@@ -28,29 +28,35 @@ wss.on('connection', ws => {
   ws.send(JSON.stringify({ type: 'connection', message: 'Connection established' }));
 
   ws.on('message', message => {
-    if (isCooldown) {
-      ws.send(JSON.stringify({ type: 'cooldown', message: 'Server is in cooldown. Try again later.' }));
+    let parsedMessage;
+
+    try {
+      parsedMessage = JSON.parse(message);
+    } catch (error) {
+      console.error('Error parsing message:', error);
       return;
     }
 
+    const { coordinates } = parsedMessage; e
+    const now = Date.now();
+    const cooldownPeriod = 5000;
+
+    if (cooldowns.has(coordinates) && (now - cooldowns.get(coordinates) < cooldownPeriod)) {
+      ws.send(JSON.stringify({ type: 'cooldown', message: 'Server is in cooldown for these coordinates. Try again later.' }));
+      return;
+    }
+
+    cooldowns.set(coordinates, now);
     console.log(`Received message => ${message}`);
-    isCooldown = true;
 
     try {
-      // Broadcast message to all connected clients
       wss.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
           client.send(message);
         }
       });
-
-      // Set cooldown for 3 seconds
-      setTimeout(() => {
-        isCooldown = false;
-      }, 3000);
-
     } catch (error) {
-      console.error('Error parsing or broadcasting message:', error);
+      console.error('Error broadcasting message:', error);
     }
   });
 
@@ -113,7 +119,7 @@ app.post('/send-otp', async (req, res) => {
       body: JSON.stringify({
         apikey: apiKey,
         number: mobilenumber,
-        message: `Your OTP is: ${otp}`,
+        message: `Your OTP is: ${otp}. Use this in your account registration in order to proceed`,
         sendername: 'CODERIED'
       })
     });
