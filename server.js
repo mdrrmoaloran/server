@@ -8,7 +8,11 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-let isCooldown = false;
+// Map to store cooldown timestamps for each unique coordinates
+const coordinateCooldowns = new Map();
+
+// Cooldown period in milliseconds (5 seconds)
+const COOLDOWN_PERIOD = 5000;
 
 app.use(cors({
   origin: '*',
@@ -28,29 +32,58 @@ wss.on('connection', ws => {
   ws.send(JSON.stringify({ type: 'connection', message: 'Connection established' }));
 
   ws.on('message', message => {
-    if (isCooldown) {
-      ws.send(JSON.stringify({ type: 'cooldown', message: 'Server is in cooldown. Try again later.' }));
+    let parsedMessage;
+
+    try {
+      parsedMessage = JSON.parse(message);
+    } catch (error) {
+      console.error('Error parsing message:', error);
+      ws.send(JSON.stringify({ type: 'error', message: 'Invalid message format.' }));
       return;
     }
 
-    console.log(`Received message => ${message}`);
-    isCooldown = true;
+    // Extract coordinates from the message
+    // Assuming the message contains 'latitude' and 'longitude' fields
+    const { latitude, longitude } = parsedMessage;
+
+    if (typeof latitude !== 'number' || typeof longitude !== 'number') {
+      ws.send(JSON.stringify({ type: 'error', message: 'Invalid or missing coordinates.' }));
+      return;
+    }
+
+    const coordinatesKey = `${latitude},${longitude}`;
+    const now = Date.now();
+
+    // Check if the coordinates are in cooldown
+    if (coordinateCooldowns.has(coordinatesKey)) {
+      const lastReceived = coordinateCooldowns.get(coordinatesKey);
+      if ((now - lastReceived) < COOLDOWN_PERIOD) {
+        ws.send(JSON.stringify({ type: 'cooldown', message: 'Server is in cooldown for these coordinates. Try again later.' }));
+        console.log(`Cooldown active for coordinates: ${coordinatesKey}`);
+        return;
+      }
+    }
+
+    // Update the last received timestamp for these coordinates
+    coordinateCooldowns.set(coordinatesKey, now);
+    console.log(`Received message from coordinates => ${coordinatesKey}`);
 
     try {
-
+      // Broadcast message to all connected clients
       wss.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
           client.send(message);
         }
       });
-
-      setTimeout(() => {
-        isCooldown = false;
-      }, 3000);
-
     } catch (error) {
-      console.error('Error parsing or broadcasting message:', error);
+      console.error('Error broadcasting message:', error);
     }
+
+    // Optionally, you can remove the cooldown after the period to free up memory
+    setTimeout(() => {
+      coordinateCooldowns.delete(coordinatesKey);
+      console.log(`Cooldown expired for coordinates: ${coordinatesKey}`);
+    }, COOLDOWN_PERIOD);
   });
 
   ws.on('close', () => {
@@ -62,6 +95,7 @@ wss.on('connection', ws => {
   });
 });
 
+// SMS and OTP endpoints remain unchanged
 app.post('/send-sms', async (req, res) => {
   const { mobilenumber, message } = req.body;
 
