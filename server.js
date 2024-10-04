@@ -111,7 +111,7 @@ app.post('/send-otp', async (req, res) => {
       body: JSON.stringify({
         apikey: apiKey,
         number: mobilenumber,
-        message: `Your OTP is: ${otp}`,
+        message: `Your OTP is: ${otp}. Use this code to proceed in the account registration.`,
         sendername: 'CODERIED'
       })
     });
