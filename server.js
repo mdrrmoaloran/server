@@ -8,8 +8,7 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-const cooldownMap = new Map();  // Store the last time a message was received for each coordinate
-const COOLDOWN_PERIOD = 5000;   // 5 seconds cooldown
+let isCooldown = false;
 
 app.use(cors({
   origin: '*',
@@ -25,44 +24,31 @@ app.get('/', (req, res) => {
 
 wss.on('connection', ws => {
   console.log('New client connected');
+
   ws.send(JSON.stringify({ type: 'connection', message: 'Connection established' }));
 
   ws.on('message', message => {
+    if (isCooldown) {
+      ws.send(JSON.stringify({ type: 'cooldown', message: 'Server is in cooldown. Try again later.' }));
+      return;
+    }
+
+    console.log(`Received message => ${message}`);
+    isCooldown = true;
+
     try {
-      const parsedMessage = JSON.parse(message);
-      const { coordinates } = parsedMessage;  // Assuming message contains coordinates
-
-      if (!coordinates) {
-        ws.send(JSON.stringify({ type: 'error', message: 'Coordinates not provided' }));
-        return;
-      }
-
-      const currentTime = Date.now();
-
-      // Check if the coordinates are in cooldown
-      if (cooldownMap.has(coordinates)) {
-        const lastMessageTime = cooldownMap.get(coordinates);
-        const timeSinceLastMessage = currentTime - lastMessageTime;
-
-        if (timeSinceLastMessage < COOLDOWN_PERIOD) {
-          ws.send(JSON.stringify({ type: 'cooldown', message: 'Server is in cooldown for these coordinates. Try again later.' }));
-          return;
-        }
-      }
-
-      // Broadcast the message to all clients
       wss.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
           client.send(message);
         }
       });
 
-      // Set cooldown for the current coordinates
-      cooldownMap.set(coordinates, currentTime);
+      setTimeout(() => {
+        isCooldown = false;
+      }, 3000);
 
     } catch (error) {
       console.error('Error parsing or broadcasting message:', error);
-      ws.send(JSON.stringify({ type: 'error', message: 'Error processing your message' }));
     }
   });
 
